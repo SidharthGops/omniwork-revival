@@ -1,113 +1,98 @@
-# OmniWork revival
+# OmniWork prototype
 
-An AI-powered hybrid work companion: task checklists, a **proactive** AI
-that checks in on its own instead of waiting to be asked, user-set presence
-(available / focused / away / blocked) where **flipping to Blocked
-automatically triggers AI brainstorming + a team-memory search + a lead
-alert**, optional Slack DM delivery, optional Zoom-aware quiet hours, and
-lightweight cafeteria rooms.
+A working, end-to-end prototype of an AI-assisted hybrid work companion: a team
+lead dashboard, a team member page, an Ollama-powered checklist splitter and
+check-in loop, a local team-memory lookup for when someone's stuck, and outbound
+Slack posting. Zoom presence is simulated since there's no registered Zoom app.
+
+## Setup
+
+```
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+Install and run Ollama separately (https://ollama.com), then pull a small model:
+
+```
+ollama pull llama3.1
+```
+
+If Ollama isn't running, task generation and check-ins fall back gracefully
+(generic checklist, no auto-progress) so the demo doesn't break if the model
+service hiccups.
+
+Slack is optional. If you want real Slack posts during the demo:
+
+```
+export SLACK_BOT_TOKEN=xoxb-...
+export SLACK_CHANNEL=#omniwork-status
+```
+
+Create the Slack app at https://api.slack.com/apps with the `chat:write` scope,
+install it to your workspace, and invite the bot to that channel. Without these
+env vars, Slack calls just no-op silently, nothing else breaks.
+
+## Run
+
+```
+uvicorn app.main:app --reload
+```
+
+Open http://localhost:8000 for the lead dashboard, http://localhost:8000/member
+for the member page. Use the member dropdown on the member page to role-play
+different team members during the demo, since there's no auth layer.
+
+## What's real vs simulated
+
+- Task checklist generation: real, calls your local Ollama.
+- Member check-in loop: real, free-text update goes to Ollama, which decides
+  which checkpoints are now done. No form-filling required.
+- Avatar-to-avatar exchange: real, two Ollama calls (requester avatar, target
+  avatar), shown as a transcript when you hit "Reach via AI avatar" on someone
+  who's busy or in a (simulated) Zoom call.
+- Team memory lookup: real search, but local TF-IDF over a small seeded corpus
+  instead of a hosted embedding model — no network call, no download, so it
+  can't fail on stage. Swap in Chroma + real embeddings later without touching
+  the call sites (see `app/team_memory.py`).
+- Live status + progress: real, backed by SQLite, pushed to both pages over
+  WebSocket.
+- Slack: real outbound posts (status changes, avatar reach-outs) via
+  `slack_sdk.WebClient`, no-ops cleanly if `SLACK_BOT_TOKEN` isn't set.
+- Zoom "in a call" state: simulated with a checkbox on the lead's member cards.
+  There's no registered Zoom app with the right scopes, so this stands in for
+  real presence. Swapping this for the real Zoom SDK is the main piece of
+  follow-up work once you have an approved app.
+
+## Demo script (3-4 minutes)
+
+1. On the lead page, describe a project, hit "Generate checklist with AI",
+   review/edit the checkpoints, assign to someone.
+2. Switch to the member page as that person, send a check-in like "finished the
+   first part, starting the next one" and watch the checkpoint tick off and the
+   lead's progress bar update live.
+3. On the member page, mark yourself "Stuck" with a reason that resembles one of
+   the seeded past incidents (try wording close to an OAuth or CI issue) and show
+   the memory suggestion appear.
+4. On the lead page, toggle another member into a simulated Zoom call, then hit
+   "Reach via AI avatar" on them and show the two-avatar transcript.
 
 ## Structure
 
 ```
-server/   Express + Socket.io + MongoDB (Mongoose)
-client/   React (Vite)
+app/
+  main.py           FastAPI app, mounts routers + static frontend + websocket
+  models.py         SQLModel tables: Member, Task, Checkpoint, AvatarExchange
+  database.py       SQLite engine + demo member seed
+  ollama_client.py  Checklist generation, check-in parsing, avatar exchange
+  team_memory.py    Local TF-IDF search over seeded past-incident data
+  slack_bot.py      Outbound Slack posting, no-ops if not configured
+  ws_manager.py     WebSocket broadcast for live updates
+  routers/
+    members.py      Status, zoom sim, check-in, reach/avatar exchange
+    tasks.py         AI checklist generation, task assignment, checkpoint toggling
+static/
+  index.html        Team lead dashboard
+  member.html        Team member page
 ```
-
-Every AI/vector call in `server/src/services/` has a built-in fallback —
-the app degrades gracefully instead of crashing if the LLM is unreachable
-or the model isn't pulled yet. The vector store is a local, offline
-hashing-trick embedding (no external embeddings API, no vector DB infra) —
-swap it out later without touching the routes that call it.
-
-## Run it
-
-1. **Ollama (local LLM)** — install from [ollama.com](https://ollama.com),
-   then:
-   ```
-   ollama pull llama3.1      # or any model you prefer — update OLLAMA_MODEL to match
-   ollama serve                # usually already running as a background service
-   ```
-   Or skip the install and use the `ollama` service in `docker-compose.yml`
-   below (pull the model once with `docker compose exec ollama ollama pull llama3.1`).
-
-2. **Database** — either:
-   ```
-   docker compose up -d
-   ```
-   or point `MONGO_URI` at an existing Mongo instance / Atlas cluster.
-
-3. **Server**
-   ```
-   cd server
-   cp .env.example .env      # fill in JWT_SECRET; OLLAMA_BASE_URL/OLLAMA_MODEL default to a local ollama serve
-   npm install
-   npm run seed               # creates demo team, users, project, knowledge base
-   npm run dev                 # http://localhost:4000
-   ```
-
-4. **Client**
-   ```
-   cd client
-   cp .env.example .env
-   npm install
-   npm run dev                 # http://localhost:5173
-   ```
-
-5. Sign in with one of the seeded accounts (password `password123`):
-   - `lead@demo.dev`
-   - `alex@demo.dev`
-   - `priya@demo.dev`
-
-## What's real vs. stubbed
-
-| Feature | Status |
-|---|---|
-| Checklist generation | Real LLM call via `services/aiOrchestrator.js` against a local Ollama server, falls back to a generic 5-step checklist |
-| **Proactive AI check-ins** | Real — `services/companionScheduler.js` runs on an interval, scans in-progress tasks, and pushes a check-in over the `/companion` socket on its own. No button required. Respects Focused/Away/Blocked and (if configured) an active Zoom meeting. |
-| **Blocked → auto-assist** | Real — `services/blockedFlow.js` fires the moment presence flips to Blocked with a note: AI brainstorm + team-memory search delivered to the user, and a live alert delivered to the team's leads. |
-| Manual "check in" / "I'm stuck" | Still available as on-demand alternatives; both now flow through the same companion pipeline as the proactive messages |
-| Team memory / "stuck" search | Real search over seeded knowledge entries using local embeddings — no external vector DB |
-| Presence | Fully real — Socket.io broadcast, user-set only, no tracking |
-| Cafeteria rooms | Fully real — Socket.io chat, persisted to Mongo |
-| **Slack** | Real outbound integration (`services/slack.js`) — DMs a user's check-ins and stuck-alerts, and DMs their lead, via the Slack Web API. No-ops if `SLACK_BOT_TOKEN` / a user's `slackUserId` aren't set. |
-| **Zoom** | Real presence lookup (`services/zoom.js`) via Server-to-Server OAuth — used only to skip a check-in while someone's in a meeting. No-ops if Zoom env vars / a user's `zoomEmail` aren't set. |
-
-### Setting up Slack (optional)
-
-1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps), add the `chat:write` and `im:write` bot scopes, install it to your workspace.
-2. Put the Bot User OAuth Token in `SLACK_BOT_TOKEN`.
-3. Set `slackUserId` on a `User` document (their Slack member ID, e.g. `U0123ABC`) — there's no UI for this yet, set it directly in Mongo or extend the seed script.
-
-### Setting up Zoom (optional)
-
-1. Create a **Server-to-Server OAuth** app in the [Zoom App Marketplace](https://marketplace.zoom.us/) with the `user:read:user` scope.
-2. Put the Account ID / Client ID / Client Secret in `ZOOM_ACCOUNT_ID` / `ZOOM_CLIENT_ID` / `ZOOM_CLIENT_SECRET`.
-3. Set `zoomEmail` on a `User` document to the email tied to their Zoom account.
-
-### Demoing the proactive check-in quickly
-
-By default a task has to sit untouched for 30 minutes before the scheduler nudges about it. For a live demo, lower the threshold in `server/.env`:
-
-```
-COMPANION_SCAN_INTERVAL_MS=30000
-COMPANION_CHECKIN_THRESHOLD_MS=60000
-```
-
-Or just click "Check in" on a task in the UI — it forces an immediate check-in through the same pipeline, so you'll see it land in the "Your AI companion" panel (and as a toast) right away.
-
-## Using a different Ollama model
-
-Set `OLLAMA_MODEL` in `server/.env` to any model you've pulled (`ollama list`
-shows what's available locally). Smaller instruction-tuned models (e.g.
-`llama3.2`, `mistral`, `qwen2.5`) work fine for the checklist/check-in/brainstorm
-prompts in `aiOrchestrator.js` and respond faster on CPU-only machines than
-larger ones. If `OLLAMA_BASE_URL` is unreachable or the model returns an
-error, every AI feature falls back to its canned response automatically —
-nothing in the app crashes or blocks on it.
-
-## Cutting scope under time pressure
-
-The work plan orders features so you can drop from the bottom without
-breaking the demo: cafeteria rooms first, then team memory, keeping
-checklist generation + presence + check-ins as the non-negotiable core.

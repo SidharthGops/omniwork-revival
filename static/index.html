@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OmniWork — team lead</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+<div class="max-w-5xl mx-auto p-6 space-y-8">
+
+  <header class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold">Team lead dashboard</h1>
+      <p class="text-gray-500 text-sm">AI-split tasks, live status, avatar-to-avatar check-ins.</p>
+    </div>
+    <a href="/member" class="text-sm text-gray-500 underline">Open member view</a>
+  </header>
+
+  <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+    <h2 class="font-medium text-lg">New task</h2>
+    <textarea id="task-desc" rows="3" placeholder="Describe the project, e.g. Build customer analytics dashboard"
+      class="w-full border border-gray-300 rounded-lg p-3 text-sm"></textarea>
+    <div class="flex gap-3">
+      <button id="generate-btn" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Generate checklist with AI</button>
+      <span id="generate-status" class="text-sm text-gray-500 self-center"></span>
+    </div>
+
+    <div id="checklist-editor" class="hidden space-y-3 border-t border-gray-100 pt-4">
+      <input id="task-title" class="w-full border border-gray-300 rounded-lg p-2 text-sm font-medium" />
+      <ul id="checkpoint-list" class="space-y-2"></ul>
+      <button id="add-checkpoint" class="text-sm text-gray-500">+ add checkpoint</button>
+      <div class="flex gap-3 items-center pt-2">
+        <select id="assignee-select" class="border border-gray-300 rounded-lg p-2 text-sm"></select>
+        <button id="assign-btn" class="bg-emerald-600 text-white text-sm px-4 py-2 rounded-lg">Assign task</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="space-y-4">
+    <h2 class="font-medium text-lg">Team status</h2>
+    <div id="member-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+  </section>
+
+  <div id="exchange-modal" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl p-5 max-w-md w-full space-y-3">
+      <h3 class="font-medium">Avatar exchange</h3>
+      <pre id="exchange-text" class="text-sm whitespace-pre-wrap bg-gray-50 p-3 rounded-lg"></pre>
+      <button id="close-modal" class="text-sm text-gray-500">Close</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const statusColors = {
+  available: "bg-green-100 text-green-800",
+  focused: "bg-blue-100 text-blue-800",
+  away: "bg-yellow-100 text-yellow-800",
+  blocked: "bg-red-100 text-red-800",
+};
+let members = [];
+let generatedCheckpoints = [];
+const CURRENT_LEAD_ID = "lead"; // demo stand-in for an authenticated lead/requester
+
+async function loadMembers() {
+  const res = await fetch("/api/members");
+  members = await res.json();
+  renderMembers();
+  renderAssigneeOptions();
+}
+
+function renderAssigneeOptions() {
+  const sel = document.getElementById("assignee-select");
+  sel.innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+}
+
+function renderMembers() {
+  const grid = document.getElementById("member-grid");
+  grid.innerHTML = members.map(m => {
+    const progress = m.progress_total ? Math.round((m.progress_done / m.progress_total) * 100) : 0;
+    return `
+    <div class="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <div class="font-medium">${m.name}</div>
+          <div class="text-xs text-gray-500">${m.role}</div>
+        </div>
+        <span class="text-xs px-2 py-1 rounded-full ${statusColors[m.status]}">${m.status}</span>
+      </div>
+      <div class="text-sm text-gray-700">${m.current_task || "No active task"}</div>
+      ${m.progress_total ? `
+      <div class="w-full bg-gray-100 rounded-full h-2">
+        <div class="bg-gray-900 h-2 rounded-full" style="width:${progress}%"></div>
+      </div>
+      <div class="text-xs text-gray-400">${m.progress_done}/${m.progress_total} checkpoints</div>` : ""}
+      ${m.status === "blocked" && m.blocked_reason ? `<div class="text-xs text-red-600">Stuck: ${m.blocked_reason}</div>` : ""}
+      <div class="flex items-center gap-2 pt-1">
+        <label class="text-xs text-gray-500 flex items-center gap-1">
+          <input type="checkbox" data-zoom="${m.id}" ${m.in_zoom_call ? "checked" : ""} /> in Zoom call (sim)
+        </label>
+      </div>
+      <button data-reach="${m.id}" class="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg">Reach via AI avatar</button>
+    </div>`;
+  }).join("");
+
+  grid.querySelectorAll("[data-zoom]").forEach(el => {
+    el.addEventListener("change", async (e) => {
+      await fetch(`/api/members/${el.dataset.zoom}/zoom`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ in_zoom_call: e.target.checked }),
+      });
+    });
+  });
+
+  grid.querySelectorAll("[data-reach]").forEach(el => {
+    el.addEventListener("click", async () => {
+      const reason = prompt("What does the lead need from this person?", "Quick question about their current task");
+      if (!reason) return;
+      const res = await fetch(`/api/members/${el.dataset.reach}/reach`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ requester_id: 1, reason }),
+      });
+      const data = await res.json();
+      showExchange(data.direct ? data.message : data.transcript);
+    });
+  });
+}
+
+function showExchange(text) {
+  document.getElementById("exchange-text").textContent = text;
+  document.getElementById("exchange-modal").classList.remove("hidden");
+}
+document.getElementById("close-modal").addEventListener("click", () => {
+  document.getElementById("exchange-modal").classList.add("hidden");
+});
+
+document.getElementById("generate-btn").addEventListener("click", async () => {
+  const desc = document.getElementById("task-desc").value.trim();
+  if (!desc) return;
+  document.getElementById("generate-status").textContent = "Splitting into checkpoints…";
+  const res = await fetch("/api/tasks/generate", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ description: desc }),
+  });
+  const data = await res.json();
+  document.getElementById("generate-status").textContent = "";
+  document.getElementById("task-title").value = data.title;
+  generatedCheckpoints = data.checkpoints;
+  renderCheckpointEditor();
+  document.getElementById("checklist-editor").classList.remove("hidden");
+});
+
+function renderCheckpointEditor() {
+  const list = document.getElementById("checkpoint-list");
+  list.innerHTML = generatedCheckpoints.map((c, i) => `
+    <li class="flex gap-2">
+      <input class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" data-cp="${i}" value="${c}" />
+      <button data-remove="${i}" class="text-gray-400 text-sm">remove</button>
+    </li>`).join("");
+  list.querySelectorAll("[data-cp]").forEach(el => {
+    el.addEventListener("input", e => generatedCheckpoints[el.dataset.cp] = e.target.value);
+  });
+  list.querySelectorAll("[data-remove]").forEach(el => {
+    el.addEventListener("click", () => {
+      generatedCheckpoints.splice(el.dataset.remove, 1);
+      renderCheckpointEditor();
+    });
+  });
+}
+
+document.getElementById("add-checkpoint").addEventListener("click", () => {
+  generatedCheckpoints.push("New checkpoint");
+  renderCheckpointEditor();
+});
+
+document.getElementById("assign-btn").addEventListener("click", async () => {
+  const title = document.getElementById("task-title").value.trim();
+  const assignee_id = parseInt(document.getElementById("assignee-select").value);
+  const description = document.getElementById("task-desc").value.trim();
+  if (!title || !generatedCheckpoints.length) return;
+  await fetch("/api/tasks", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({ title, description, checkpoints: generatedCheckpoints, assignee_id }),
+  });
+  document.getElementById("task-desc").value = "";
+  document.getElementById("checklist-editor").classList.add("hidden");
+  loadMembers();
+});
+
+function connectSocket() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = () => loadMembers();
+  ws.onclose = () => setTimeout(connectSocket, 2000);
+}
+
+loadMembers();
+connectSocket();
+</script>
+</body>
+</html>
