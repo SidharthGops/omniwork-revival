@@ -34,7 +34,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 28px;
+  margin-bottom: 20px;
 }
 
 .top-bar h1 {
@@ -166,6 +166,8 @@ button:disabled {
   padding: 10px 0;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .task-row:last-child { border-bottom: none; }
@@ -177,6 +179,17 @@ button:disabled {
   border-radius: 6px;
   padding: 4px 8px;
   background: var(--paper);
+}
+
+.assignee-select {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  max-width: 140px;
 }
 
 .teammate-status {
@@ -242,6 +255,13 @@ button:disabled {
 
 .chat-input-row input {
   flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .assist-result {
@@ -258,4 +278,203 @@ button:disabled {
   padding-top: 10px;
   margin-top: 10px;
   font-size: 13px;
+}
+
+/* --- Blocked-note inline form (PresenceSwitcher) --- */
+.blocked-note-form {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--paper);
+  border: 1px solid var(--status-blocked);
+  border-radius: 8px;
+}
+
+.blocked-note-form label {
+  display: block;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.blocked-note-form textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  margin-bottom: 10px;
+}
+
+/* --- AI companion feed --- */
+.companion-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.companion-message {
+  font-size: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+}
+
+.companion-message[data-author="ai"] {
+  border-color: var(--status-focused);
+  background: #eef2f8;
+}
+
+.companion-message[data-author="user"] {
+  align-self: flex-end;
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+  max-width: 85%;
+}
+
+.companion-message p {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.companion-message-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--status-focused);
+  margin-bottom: 4px;
+}
+
+.companion-reply-toggle {
+  margin-top: 8px;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.companion-reply-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.companion-reply-form input {
+  flex: 1;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/* --- Proactive companion toast --- */
+.companion-toast {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  max-width: 320px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 10px;
+  padding: 14px 36px 14px 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 1000;
+  animation: companion-toast-in 0.2s ease-out;
+}
+
+@keyframes companion-toast-in {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.companion-toast-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+
+.companion-toast p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.companion-toast-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: transparent;
+  border: none;
+  color: var(--paper);
+  font-size: 16px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+/* --- Team lead alerts --- */
+.lead-alert-item {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.lead-alert-item:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+
+.lead-alert-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lead-alert-contact {
+  font-size: 12px;
+  color: var(--status-focused);
+}
+
+.lead-alert-problem {
+  color: var(--status-blocked);
+  font-size: 13px;
+  margin: 6px 0;
+}
+
+.lead-alert-suggestion {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+/* --- Persistent top status bar (every page, not just Dashboard) --- */
+.top-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.top-status-label {
+  font-size: 12px;
+  color: var(--ink-soft);
+  white-space: nowrap;
 }

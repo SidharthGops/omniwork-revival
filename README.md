@@ -1,12 +1,11 @@
-# OmniWork revival — scaffold
+# OmniWork revival
 
-An AI-powered hybrid work companion: task checklists, non-intrusive AI
-check-ins, user-set presence (available / focused / away / blocked), a
-team-memory knowledge search for the "I'm stuck" flow, and lightweight
-cafeteria rooms.
-
-See `/areas` in the project notes for the full architecture writeup and the
-15-hour work plan this scaffold is built against.
+An AI-powered hybrid work companion: task checklists, a **proactive** AI
+that checks in on its own instead of waiting to be asked, user-set presence
+(available / focused / away / blocked) where **flipping to Blocked
+automatically triggers AI brainstorming + a team-memory search + a lead
+alert**, optional Slack DM delivery, optional Zoom-aware quiet hours, and
+lightweight cafeteria rooms.
 
 ## Structure
 
@@ -65,11 +64,37 @@ swap it out later without touching the routes that call it.
 | Feature | Status |
 |---|---|
 | Checklist generation | Real LLM call via `services/aiOrchestrator.js` against a local Ollama server, falls back to a generic 5-step checklist |
-| AI check-in messages | Real LLM call, falls back to a canned check-in line |
+| **Proactive AI check-ins** | Real — `services/companionScheduler.js` runs on an interval, scans in-progress tasks, and pushes a check-in over the `/companion` socket on its own. No button required. Respects Focused/Away/Blocked and (if configured) an active Zoom meeting. |
+| **Blocked → auto-assist** | Real — `services/blockedFlow.js` fires the moment presence flips to Blocked with a note: AI brainstorm + team-memory search delivered to the user, and a live alert delivered to the team's leads. |
+| Manual "check in" / "I'm stuck" | Still available as on-demand alternatives; both now flow through the same companion pipeline as the proactive messages |
 | Team memory / "stuck" search | Real search over seeded knowledge entries using local embeddings — no external vector DB |
 | Presence | Fully real — Socket.io broadcast, user-set only, no tracking |
 | Cafeteria rooms | Fully real — Socket.io chat, persisted to Mongo |
-| Slack / Zoom | Not implemented — out of scope for the hackathon window, see work plan |
+| **Slack** | Real outbound integration (`services/slack.js`) — DMs a user's check-ins and stuck-alerts, and DMs their lead, via the Slack Web API. No-ops if `SLACK_BOT_TOKEN` / a user's `slackUserId` aren't set. |
+| **Zoom** | Real presence lookup (`services/zoom.js`) via Server-to-Server OAuth — used only to skip a check-in while someone's in a meeting. No-ops if Zoom env vars / a user's `zoomEmail` aren't set. |
+
+### Setting up Slack (optional)
+
+1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps), add the `chat:write` and `im:write` bot scopes, install it to your workspace.
+2. Put the Bot User OAuth Token in `SLACK_BOT_TOKEN`.
+3. Set `slackUserId` on a `User` document (their Slack member ID, e.g. `U0123ABC`) — there's no UI for this yet, set it directly in Mongo or extend the seed script.
+
+### Setting up Zoom (optional)
+
+1. Create a **Server-to-Server OAuth** app in the [Zoom App Marketplace](https://marketplace.zoom.us/) with the `user:read:user` scope.
+2. Put the Account ID / Client ID / Client Secret in `ZOOM_ACCOUNT_ID` / `ZOOM_CLIENT_ID` / `ZOOM_CLIENT_SECRET`.
+3. Set `zoomEmail` on a `User` document to the email tied to their Zoom account.
+
+### Demoing the proactive check-in quickly
+
+By default a task has to sit untouched for 30 minutes before the scheduler nudges about it. For a live demo, lower the threshold in `server/.env`:
+
+```
+COMPANION_SCAN_INTERVAL_MS=30000
+COMPANION_CHECKIN_THRESHOLD_MS=60000
+```
+
+Or just click "Check in" on a task in the UI — it forces an immediate check-in through the same pipeline, so you'll see it land in the "Your AI companion" panel (and as a toast) right away.
 
 ## Using a different Ollama model
 

@@ -1,11 +1,13 @@
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
 
-const VALID_STATUSES = ["available", "focused", "away", "blocked"];
-
-// Presence is user-set, not detected — that's the whole point of the pitch.
-// A socket just authenticates once, joins its team's room, and broadcasts
-// status changes to teammates. No polling, no camera, no mouse tracking.
+// Presence is user-set, not detected. The actual write now happens in
+// routes/presence.js (PATCH /api/presence) — this namespace exists purely
+// to authenticate once, join the team's broadcast room, and relay the
+// presence:update events that route pushes. It used to also own a
+// "presence:set" socket handler that duplicated that same write; having two
+// places that could write presence was itself a bug risk (they could drift,
+// and the socket path had no way to report a failed write back to the UI),
+// so that handler was removed in favor of the single REST path.
 export function registerPresenceSocket(io) {
   const nsp = io.of("/presence");
 
@@ -23,23 +25,5 @@ export function registerPresenceSocket(io) {
 
   nsp.on("connection", (socket) => {
     if (socket.teamId) socket.join(`team:${socket.teamId}`);
-
-    socket.on("presence:set", async ({ status, note }) => {
-      if (!VALID_STATUSES.includes(status)) return;
-
-      const user = await User.findByIdAndUpdate(
-        socket.userId,
-        { presence: { status, note: note || "", updatedAt: new Date() } },
-        { new: true }
-      ).select("name presence");
-
-      if (!user) return;
-
-      nsp.to(`team:${socket.teamId}`).emit("presence:update", {
-        userId: socket.userId,
-        name: user.name,
-        presence: user.presence,
-      });
-    });
   });
 }

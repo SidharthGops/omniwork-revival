@@ -8,6 +8,12 @@ const messageSchema = new mongoose.Schema(
     author: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     authorLabel: { type: String, default: "" }, // "AI companion" when author is null
     text: { type: String, required: true },
+    // "chat" = cafeteria message. Companion feed messages use:
+    // "checkin" | "stuck" | "reply" | "ack" | "lead-alert"
+    kind: { type: String, default: "chat" },
+    // Structured context for companion messages: taskId/projectId for
+    // check-ins, matches/problem for stuck-assist, etc.
+    meta: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );

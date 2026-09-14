@@ -23,7 +23,11 @@ export default function StuckAssist() {
 
   return (
     <div className="panel">
-      <h2>I'm stuck</h2>
+      <h2>Ask the companion directly</h2>
+      <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: -6 }}>
+        A one-off ask that doesn't change your status or notify your lead. Setting your status to
+        Blocked above does both of those automatically.
+      </p>
       <form onSubmit={handleSubmit}>
         <div className="field">
           <label htmlFor="problem">What's blocking you?</label>

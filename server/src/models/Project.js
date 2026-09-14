@@ -9,6 +9,11 @@ const taskSchema = new mongoose.Schema(
       default: "todo",
     },
     assignee: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    // Drives the proactive companion scheduler: when it last nudged about
+    // this task, and the last thing the assignee told it (used as context
+    // for the next check-in instead of just the raw status).
+    lastCheckInAt: { type: Date, default: null },
+    lastUpdateNote: { type: String, default: "" },
   },
   { _id: true, timestamps: true }
 );
