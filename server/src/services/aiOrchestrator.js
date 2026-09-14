@@ -10,7 +10,7 @@
 // crashes the request.
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
-const MODEL = process.env.OLLAMA_MODEL || "llama3.1";
+const MODEL = process.env.OLLAMA_MODEL || "llama3.1:8b-instruct-q4_K_M";
 
 async function callOllama(systemPrompt, userPrompt, maxTokens = 500) {
   const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
