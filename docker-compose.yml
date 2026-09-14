@@ -1,0 +1,12 @@
+# Optional — spins up a local MongoDB so nobody has to install it during the
+# hackathon. Not required if you already have Mongo running or use Atlas.
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
+volumes:
+  mongo-data:
