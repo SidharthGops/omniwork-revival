@@ -1,36 +1,41 @@
 // Single entry point for every LLM-backed feature: checklist generation,
 // check-in message drafting, and stuck-employee brainstorming.
 //
+// Backed by a local Ollama server instead of a hosted API — no API key,
+// no network egress, runs entirely on the machine running `ollama serve`.
+//
 // Fail-proof by design: every export wraps its LLM call in a try/catch and
-// falls back to a canned-but-useful response. A flaky or missing API key
-// degrades the feature, it never crashes the request.
+// falls back to a canned-but-useful response. A missing/unreachable Ollama
+// server or a model that isn't pulled yet degrades the feature, it never
+// crashes the request.
 
-const API_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434";
+const MODEL = process.env.OLLAMA_MODEL || "llama3.1";
 
-async function callClaude(systemPrompt, userPrompt, maxTokens = 500) {
-  if (!API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+async function callOllama(systemPrompt, userPrompt, maxTokens = 500) {
+  const res = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      stream: false,
+      options: { num_predict: maxTokens },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
     }),
   });
 
-  if (!res.ok) throw new Error(`Anthropic API error: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Ollama error: ${res.status} ${body}`.trim());
+  }
+
   const data = await res.json();
-  const textBlock = data.content?.find((b) => b.type === "text");
-  if (!textBlock) throw new Error("No text block in Anthropic response");
-  return textBlock.text;
+  const text = data?.message?.content;
+  if (!text) throw new Error("No message content in Ollama response");
+  return text;
 }
 
 // --- 1. Checklist generation -------------------------------------------------
@@ -45,9 +50,9 @@ export async function generateChecklist(projectTitle, projectDescription) {
   ];
 
   try {
-    const raw = await callClaude(
+    const raw = await callOllama(
       "You break software/product projects into a short, ordered checklist of 4-7 concrete tasks. " +
-        "Respond with ONLY a JSON array of short task title strings, nothing else.",
+        "Respond with ONLY a JSON array of short task title strings, nothing else — no markdown, no explanation.",
       `Project: ${projectTitle}\nDescription: ${projectDescription}`
     );
     const cleaned = raw.replace(/```json|```/g, "").trim();
@@ -66,7 +71,7 @@ export async function draftCheckIn(taskTitle, lastUpdateText) {
   const fallback = `Quick check — how's "${taskTitle}" going? Reply whenever you get a moment, no rush.`;
 
   try {
-    const raw = await callClaude(
+    const raw = await callOllama(
       "You are a low-key, non-intrusive work companion. Write ONE short, casual check-in message " +
         "(under 25 words) asking about progress on a task. Never sound like a manager. No preamble, just the message.",
       `Task: ${taskTitle}\nLast known update: ${lastUpdateText || "none yet"}`,
@@ -87,7 +92,7 @@ export async function brainstormHelp(problemText) {
     "knowledge base search. Want me to look for a teammate who's solved something similar?";
 
   try {
-    const raw = await callClaude(
+    const raw = await callOllama(
       "You are a helpful, concise engineering assistant embedded in a work-companion tool. " +
         "Someone is stuck. Give 2-3 short, concrete suggestions (under 80 words total). " +
         "If you genuinely can't help, say so plainly in one sentence.",

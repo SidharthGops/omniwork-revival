@@ -1,5 +1,6 @@
-# Optional — spins up a local MongoDB so nobody has to install it during the
-# hackathon. Not required if you already have Mongo running or use Atlas.
+# Optional — spins up local MongoDB and Ollama so nobody has to install
+# either one directly. Not required if you already run Mongo/Ollama natively
+# or point MONGO_URI / OLLAMA_BASE_URL at existing instances.
 services:
   mongo:
     image: mongo:7
@@ -8,5 +9,16 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # First run only: pull the model this app expects (matches
+    # server/.env's OLLAMA_MODEL). Swap the tag if you change that value.
+    #   docker compose exec ollama ollama pull llama3.1
+
 volumes:
   mongo-data:
+  ollama-data:
