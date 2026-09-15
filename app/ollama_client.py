@@ -40,10 +40,8 @@ async def generate_checklist(description: str) -> dict:
             return {"title": title, "checkpoints": checkpoints}
     except Exception:
         # Fallback so the lead page still works if Ollama isn't up yet, but log
-        # the real reason — this used to be a bare `except Exception: pass`-style
-        # swallow, so "model not found" and "connection refused" both looked
-        # identical to the UI (the placeholder text) with nothing in the
-        # console to tell them apart.
+        # the real reason so "model not found" and "connection refused" aren't
+        # both invisible behind the same placeholder text.
         logger.exception(
             "generate_checklist: Ollama call failed (url=%s, model=%s) — falling back",
             OLLAMA_URL, OLLAMA_MODEL,
@@ -66,12 +64,12 @@ async def _ollama_chat(system_prompt: str, user_prompt: str) -> str:
             resp.raise_for_status()
             return resp.json()["response"].strip()
     except Exception:
-        # This is the function the AI-avatar "reach"/ping feature calls twice
-        # per exchange — if you're seeing "(Ollama unreachable, using
-        # placeholder reply)" on a ping, this except block is where it comes
-        # from. Check the uvicorn console for the logged reason right above
-        # each occurrence (connection refused = Ollama isn't running / wrong
-        # port; 404 = OLLAMA_MODEL isn't pulled under that exact tag).
+        # This is the function the AI-avatar "reach" feature calls twice per
+        # exchange — if you're seeing "(Ollama unreachable, using placeholder
+        # reply)" on a reach-out, this except block is where it comes from.
+        # Check the uvicorn console for the logged reason right above each
+        # occurrence (connection refused = Ollama isn't running / wrong port;
+        # 404 = OLLAMA_MODEL isn't pulled under that exact tag).
         logger.exception(
             "_ollama_chat: Ollama call failed (url=%s, model=%s) — falling back",
             OLLAMA_URL, OLLAMA_MODEL,

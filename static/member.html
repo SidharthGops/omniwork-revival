@@ -72,8 +72,6 @@
     }
 
     document.getElementById("who-am-i").addEventListener("change", (e) => {
-      // Member ids are now string ObjectIds from Mongo, not integers — parseInt()
-      // here used to turn every selected id into NaN, so nothing would render.
       currentId = e.target.value;
       render();
     });
