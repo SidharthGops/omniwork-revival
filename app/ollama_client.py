@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 
 import httpx
 
+logger = logging.getLogger("omniwork.ollama")
+
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b-instruct-q4_K_M")
 
 CHECKLIST_SYSTEM_PROMPT = """You split a project description into a short, ordered checklist of \
 concrete checkpoints for one engineer to work through. Reply with ONLY valid JSON, no prose, no \
@@ -36,7 +39,15 @@ async def generate_checklist(description: str) -> dict:
                 raise ValueError("empty checkpoints")
             return {"title": title, "checkpoints": checkpoints}
     except Exception:
-        # Fallback so the lead page still works if Ollama isn't up yet.
+        # Fallback so the lead page still works if Ollama isn't up yet, but log
+        # the real reason — this used to be a bare `except Exception: pass`-style
+        # swallow, so "model not found" and "connection refused" both looked
+        # identical to the UI (the placeholder text) with nothing in the
+        # console to tell them apart.
+        logger.exception(
+            "generate_checklist: Ollama call failed (url=%s, model=%s) — falling back",
+            OLLAMA_URL, OLLAMA_MODEL,
+        )
         return {
             "title": description[:60],
             "checkpoints": ["Scope the work", "Build the core piece", "Test and hand off"],
@@ -55,6 +66,16 @@ async def _ollama_chat(system_prompt: str, user_prompt: str) -> str:
             resp.raise_for_status()
             return resp.json()["response"].strip()
     except Exception:
+        # This is the function the AI-avatar "reach"/ping feature calls twice
+        # per exchange — if you're seeing "(Ollama unreachable, using
+        # placeholder reply)" on a ping, this except block is where it comes
+        # from. Check the uvicorn console for the logged reason right above
+        # each occurrence (connection refused = Ollama isn't running / wrong
+        # port; 404 = OLLAMA_MODEL isn't pulled under that exact tag).
+        logger.exception(
+            "_ollama_chat: Ollama call failed (url=%s, model=%s) — falling back",
+            OLLAMA_URL, OLLAMA_MODEL,
+        )
         return "(Ollama unreachable, using placeholder reply)"
 
 
@@ -80,6 +101,10 @@ async def parse_checkin(checkpoints: list, message: str) -> dict:
             ack = parsed.get("ack") or "Got it, thanks for the update."
             return {"completed_indices": completed, "ack": ack}
     except Exception:
+        logger.exception(
+            "parse_checkin: Ollama call failed (url=%s, model=%s) — falling back",
+            OLLAMA_URL, OLLAMA_MODEL,
+        )
         return {
             "completed_indices": [],
             "ack": "Noted (Ollama unreachable, progress wasn't auto-updated).",

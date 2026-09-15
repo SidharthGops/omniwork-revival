@@ -13,8 +13,10 @@ app.include_router(tasks.router)
 
 
 @app.on_event("startup")
-def on_startup():
-    init_db()
+async def on_startup():
+    # Now an async call to Atlas instead of a sync SQLite create_all(), so
+    # the startup hook has to be async too.
+    await init_db()
 
 
 @app.websocket("/ws")

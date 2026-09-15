@@ -16,7 +16,7 @@ pip install -r requirements.txt
 Install and run Ollama separately (https://ollama.com), then pull a small model:
 
 ```
-ollama pull llama3.1
+ollama pull llama3.1:8b-instruct-q4_K_M
 ```
 
 If Ollama isn't running, task generation and check-ins fall back gracefully

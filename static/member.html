@@ -1,153 +1,163 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>OmniWork — member</title>
-<script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OmniWork — member</title>
+  <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gray-50 text-gray-900">
-<div class="max-w-2xl mx-auto p-6 space-y-6">
+  <div class="max-w-2xl mx-auto p-6 space-y-6">
 
-  <header class="flex items-center justify-between">
-    <div>
-      <h1 class="text-2xl font-semibold">My work</h1>
-      <p class="text-gray-500 text-sm">Check in when it suits you, not on anyone else's schedule.</p>
-    </div>
-    <div class="flex items-center gap-3">
-      <select id="who-am-i" class="border border-gray-300 rounded-lg p-2 text-sm"></select>
-      <a href="/" class="text-sm text-gray-500 underline">Lead view</a>
-    </div>
-  </header>
+    <header class="flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-semibold">My work</h1>
+        <p class="text-gray-500 text-sm">Check in when it suits you, not on anyone else's schedule.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <select id="who-am-i" class="border border-gray-300 rounded-lg p-2 text-sm"></select>
+        <a href="/" class="text-sm text-gray-500 underline">Lead view</a>
+      </div>
+    </header>
 
-  <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-    <h2 class="font-medium">Status</h2>
-    <div class="flex gap-2 flex-wrap">
-      <button data-status="available" class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Available</button>
-      <button data-status="focused" class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Focused</button>
-      <button data-status="away" class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Away</button>
-      <button data-status="blocked" class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Stuck</button>
-    </div>
-    <div id="memory-suggestion" class="hidden text-sm bg-amber-50 border border-amber-200 rounded-lg p-3"></div>
-  </section>
+    <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <h2 class="font-medium">Status</h2>
+      <div class="flex gap-2 flex-wrap">
+        <button data-status="available"
+          class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Available</button>
+        <button data-status="focused"
+          class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Focused</button>
+        <button data-status="away"
+          class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Away</button>
+        <button data-status="blocked"
+          class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Stuck</button>
+      </div>
+      <div id="memory-suggestion" class="hidden text-sm bg-amber-50 border border-amber-200 rounded-lg p-3"></div>
+    </section>
 
-  <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-    <h2 class="font-medium">Current task</h2>
-    <div id="task-panel" class="text-sm text-gray-500">Loading…</div>
-  </section>
+    <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <h2 class="font-medium">Current task</h2>
+      <div id="task-panel" class="text-sm text-gray-500">Loading…</div>
+    </section>
 
-  <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-    <h2 class="font-medium">Quick check-in</h2>
-    <p class="text-xs text-gray-400">Say what you're doing in plain language. The AI updates your checklist, it doesn't ask you to fill out a form.</p>
-    <div id="checkin-log" class="text-sm space-y-2 max-h-40 overflow-y-auto"></div>
-    <div class="flex gap-2">
-      <input id="checkin-input" placeholder="e.g. just finished the data pipeline, starting on the API now"
-        class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
-      <button id="checkin-send" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Send</button>
-    </div>
-  </section>
+    <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <h2 class="font-medium">Quick check-in</h2>
+      <p class="text-xs text-gray-400">Say what you're doing in plain language. The AI updates your checklist, it
+        doesn't ask you to fill out a form.</p>
+      <div id="checkin-log" class="text-sm space-y-2 max-h-40 overflow-y-auto"></div>
+      <div class="flex gap-2">
+        <input id="checkin-input" placeholder="e.g. just finished the data pipeline, starting on the API now"
+          class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+        <button id="checkin-send" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Send</button>
+      </div>
+    </section>
 
-</div>
+  </div>
 
-<script>
-let members = [];
-let currentId = null;
+  <script>
+    let members = [];
+    let currentId = null;
 
-async function loadMembers() {
-  const res = await fetch("/api/members");
-  members = await res.json();
-  const sel = document.getElementById("who-am-i");
-  const prev = currentId;
-  sel.innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
-  currentId = prev && members.some(m => m.id === prev) ? prev : members[0]?.id;
-  sel.value = currentId;
-  render();
-}
+    async function loadMembers() {
+      const res = await fetch("/api/members");
+      members = await res.json();
+      const sel = document.getElementById("who-am-i");
+      const prev = currentId;
+      sel.innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+      currentId = prev && members.some(m => m.id === prev) ? prev : members[0]?.id;
+      sel.value = currentId;
+      render();
+    }
 
-document.getElementById("who-am-i").addEventListener("change", (e) => {
-  currentId = parseInt(e.target.value);
-  render();
-});
+    document.getElementById("who-am-i").addEventListener("change", (e) => {
+      // Member ids are now string ObjectIds from Mongo, not integers — parseInt()
+      // here used to turn every selected id into NaN, so nothing would render.
+      currentId = e.target.value;
+      render();
+    });
 
-function render() {
-  const member = members.find(m => m.id === currentId);
-  if (!member) return;
+    function render() {
+      const member = members.find(m => m.id === currentId);
+      if (!member) return;
 
-  document.querySelectorAll(".status-btn").forEach(btn => {
-    btn.classList.toggle("bg-gray-900", btn.dataset.status === member.status);
-    btn.classList.toggle("text-white", btn.dataset.status === member.status);
-  });
+      document.querySelectorAll(".status-btn").forEach(btn => {
+        btn.classList.toggle("bg-gray-900", btn.dataset.status === member.status);
+        btn.classList.toggle("text-white", btn.dataset.status === member.status);
+      });
 
-  const panel = document.getElementById("task-panel");
-  if (!member.current_task) {
-    panel.innerHTML = "No task assigned yet.";
-  } else {
-    panel.innerHTML = `
+      const panel = document.getElementById("task-panel");
+      if (!member.current_task) {
+        panel.innerHTML = "No task assigned yet.";
+      } else {
+        panel.innerHTML = `
       <div class="font-medium mb-2">${member.current_task}</div>
       <div class="w-full bg-gray-100 rounded-full h-2 mb-1">
-        <div class="bg-gray-900 h-2 rounded-full" style="width:${member.progress_total ? Math.round(member.progress_done/member.progress_total*100) : 0}%"></div>
+        <div class="bg-gray-900 h-2 rounded-full" style="width:${member.progress_total ? Math.round(member.progress_done / member.progress_total * 100) : 0}%"></div>
       </div>
       <div class="text-xs text-gray-400">${member.progress_done}/${member.progress_total} checkpoints done</div>`;
-  }
+      }
 
-  const suggestionBox = document.getElementById("memory-suggestion");
-  if (member.status === "blocked" && member.memory_suggestion) {
-    const s = member.memory_suggestion;
-    suggestionBox.classList.remove("hidden");
-    suggestionBox.innerHTML = `<strong>${s.title}</strong> looks similar — ${s.solved_by} solved it before: ${s.solution}`;
-  } else {
-    suggestionBox.classList.add("hidden");
-  }
-}
-
-document.querySelectorAll(".status-btn").forEach(btn => {
-  btn.addEventListener("click", async () => {
-    const status = btn.dataset.status;
-    let blocked_reason = null;
-    if (status === "blocked") {
-      blocked_reason = prompt("What are you stuck on?");
-      if (!blocked_reason) return;
+      const suggestionBox = document.getElementById("memory-suggestion");
+      if (member.status === "blocked" && member.memory_suggestion) {
+        const s = member.memory_suggestion;
+        suggestionBox.classList.remove("hidden");
+        suggestionBox.innerHTML = `<strong>${s.title}</strong> looks similar — ${s.solved_by} solved it before: ${s.solution}`;
+      } else {
+        suggestionBox.classList.add("hidden");
+      }
     }
-    const res = await fetch(`/api/members/${currentId}/status`, {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ status, blocked_reason }),
+
+    document.querySelectorAll(".status-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const status = btn.dataset.status;
+        let blocked_reason = null;
+        if (status === "blocked") {
+          blocked_reason = prompt("What are you stuck on?");
+          if (!blocked_reason) return;
+        }
+        const res = await fetch(`/api/members/${currentId}/status`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, blocked_reason }),
+        });
+        const updated = await res.json();
+        members = members.map(m => m.id === updated.id ? updated : m);
+        render();
+      });
     });
-    const updated = await res.json();
-    members = members.map(m => m.id === updated.id ? updated : m);
-    render();
-  });
-});
 
-document.getElementById("checkin-send").addEventListener("click", sendCheckin);
-document.getElementById("checkin-input").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") sendCheckin();
-});
+    document.getElementById("checkin-send").addEventListener("click", sendCheckin);
+    document.getElementById("checkin-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendCheckin();
+    });
 
-async function sendCheckin() {
-  const input = document.getElementById("checkin-input");
-  const message = input.value.trim();
-  if (!message) return;
-  const log = document.getElementById("checkin-log");
-  log.innerHTML += `<div class="text-gray-700">You: ${message}</div>`;
-  input.value = "";
-  const res = await fetch(`/api/members/${currentId}/checkin`, {
-    method: "POST", headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({ message }),
-  });
-  const data = await res.json();
-  log.innerHTML += `<div class="text-gray-500">AI: ${data.ack}</div>`;
-  log.scrollTop = log.scrollHeight;
-  await loadMembers();
-}
+    async function sendCheckin() {
+      const input = document.getElementById("checkin-input");
+      const message = input.value.trim();
+      if (!message) return;
+      const log = document.getElementById("checkin-log");
+      log.innerHTML += `<div class="text-gray-700">You: ${message}</div>`;
+      input.value = "";
+      const res = await fetch(`/api/members/${currentId}/checkin`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const data = await res.json();
+      log.innerHTML += `<div class="text-gray-500">AI: ${data.ack}</div>`;
+      log.scrollTop = log.scrollHeight;
+      await loadMembers();
+    }
 
-function connectSocket() {
-  const ws = new WebSocket(`ws://${location.host}/ws`);
-  ws.onmessage = () => loadMembers();
-  ws.onclose = () => setTimeout(connectSocket, 2000);
-}
+    function connectSocket() {
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onmessage = () => loadMembers();
+      ws.onclose = () => setTimeout(connectSocket, 2000);
+    }
 
-loadMembers();
-connectSocket();
-</script>
+    loadMembers();
+    connectSocket();
+  </script>
 </body>
+
 </html>

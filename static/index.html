@@ -61,11 +61,17 @@ const statusColors = {
 };
 let members = [];
 let generatedCheckpoints = [];
-const CURRENT_LEAD_ID = "lead"; // demo stand-in for an authenticated lead/requester
+// Was a hardcoded string placeholder before; now wired to the first loaded
+// member once loadMembers() runs, so the "reach" call sends a real member id
+// (a string ObjectId) instead of a hardcoded requester_id.
+let CURRENT_LEAD_ID = null;
 
 async function loadMembers() {
   const res = await fetch("/api/members");
   members = await res.json();
+  if (!CURRENT_LEAD_ID && members.length) {
+    CURRENT_LEAD_ID = members[0].id;
+  }
   renderMembers();
   renderAssigneeOptions();
 }
@@ -73,6 +79,15 @@ async function loadMembers() {
 function renderAssigneeOptions() {
   const sel = document.getElementById("assignee-select");
   sel.innerHTML = members.map(m => `<option value="${m.id}">${m.name}</option>`).join("");
+}
+
+function formatCheckinTime(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return iso;
+  }
 }
 
 function renderMembers() {
@@ -94,6 +109,11 @@ function renderMembers() {
         <div class="bg-gray-900 h-2 rounded-full" style="width:${progress}%"></div>
       </div>
       <div class="text-xs text-gray-400">${m.progress_done}/${m.progress_total} checkpoints</div>` : ""}
+      ${m.last_update_note ? `
+      <div class="text-xs bg-gray-50 border border-gray-100 rounded-lg p-2">
+        <div class="text-gray-600">"${m.last_update_note}"</div>
+        <div class="text-gray-400 mt-0.5">${formatCheckinTime(m.last_checkin_at)}</div>
+      </div>` : ""}
       ${m.status === "blocked" && m.blocked_reason ? `<div class="text-xs text-red-600">Stuck: ${m.blocked_reason}</div>` : ""}
       <div class="flex items-center gap-2 pt-1">
         <label class="text-xs text-gray-500 flex items-center gap-1">
@@ -119,7 +139,7 @@ function renderMembers() {
       if (!reason) return;
       const res = await fetch(`/api/members/${el.dataset.reach}/reach`, {
         method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ requester_id: 1, reason }),
+        body: JSON.stringify({ requester_id: CURRENT_LEAD_ID, reason }),
       });
       const data = await res.json();
       showExchange(data.direct ? data.message : data.transcript);
@@ -176,7 +196,9 @@ document.getElementById("add-checkpoint").addEventListener("click", () => {
 
 document.getElementById("assign-btn").addEventListener("click", async () => {
   const title = document.getElementById("task-title").value.trim();
-  const assignee_id = parseInt(document.getElementById("assignee-select").value);
+  // Member ids are now string ObjectIds from Mongo, not integers — parseInt()
+  // here used to silently turn every assignee_id into NaN.
+  const assignee_id = document.getElementById("assignee-select").value;
   const description = document.getElementById("task-desc").value.trim();
   if (!title || !generatedCheckpoints.length) return;
   await fetch("/api/tasks", {
