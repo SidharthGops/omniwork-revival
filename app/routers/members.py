@@ -192,16 +192,15 @@ async def toggle_zoom(member_id: str, body: ZoomToggle):
     return out
 
 
-@router.post("/{member_id}/reach")
-async def reach_member(member_id: str, body: ReachRequest):
-    """Requester's avatar tries to reach this member's avatar. If the member is busy
-    (focused, away, or in a simulated Zoom call), the two avatars have a short exchange
-    instead of interrupting the person directly."""
-    target = await members_col.find_one({"_id": _oid(member_id)})
-    requester = await members_col.find_one({"_id": _oid(body.requester_id)})
-    if not target or not requester:
-        raise HTTPException(404, "Member not found")
-
+async def perform_reach(target: dict, requester: dict, reason: str) -> dict:
+    """Shared by the per-member 'Reach via AI avatar' button (/reach below) and the
+    AI assistant's natural-language ping (app/routers/assistant.py) — same busy
+    check, same two-turn avatar exchange (still going through the same local
+    Ollama call in run_avatar_exchange), same logged transcript, same broadcast,
+    no matter which UI path triggered the reach-out. This is exactly the body
+    that used to live inline inside reach_member() below — pulled out so a
+    second caller can reuse it verbatim instead of duplicating the logic."""
+    member_id = str(target["_id"])
     task = await tasks_col.find_one({"assignee_id": member_id}, sort=[("created_at", -1)])
     task_title = task["title"] if task else "no active task"
 
@@ -212,18 +211,18 @@ async def reach_member(member_id: str, body: ReachRequest):
         return result
 
     slack_bot.post_message(
-        f"{requester['name']}'s avatar is reaching out to {target['name']}'s avatar ({body.reason})"
+        f"{requester['name']}'s avatar is reaching out to {target['name']}'s avatar ({reason})"
     )
     transcript = await run_avatar_exchange(
         requester_name=requester["name"],
         target_name=target["name"],
         target_status="in a Zoom call" if target.get("in_zoom_call") else target["status"],
         target_task_title=task_title,
-        reason=body.reason,
+        reason=reason,
     )
     await avatar_exchanges_col.insert_one({
         "requester_id": str(requester["_id"]),
-        "target_id": str(target["_id"]),
+        "target_id": member_id,
         "transcript": transcript,
         "created_at": datetime.utcnow(),
     })
@@ -231,3 +230,15 @@ async def reach_member(member_id: str, body: ReachRequest):
     result = {"direct": False, "transcript": transcript}
     await manager.broadcast("reach_result", {"target_id": member_id, **result})
     return result
+
+
+@router.post("/{member_id}/reach")
+async def reach_member(member_id: str, body: ReachRequest):
+    """Requester's avatar tries to reach this member's avatar. If the member is busy
+    (focused, away, or in a simulated Zoom call), the two avatars have a short exchange
+    instead of interrupting the person directly."""
+    target = await members_col.find_one({"_id": _oid(member_id)})
+    requester = await members_col.find_one({"_id": _oid(body.requester_id)})
+    if not target or not requester:
+        raise HTTPException(404, "Member not found")
+    return await perform_reach(target, requester, body.reason)

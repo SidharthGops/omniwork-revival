@@ -3,7 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
 from app.database import init_db
-from app.routers import cafeteria, members, tasks
+from app.routers import assistant, cafeteria, members, tasks
 from app.ws_manager import manager
 
 app = FastAPI(title="OmniWork prototype")
@@ -11,6 +11,7 @@ app = FastAPI(title="OmniWork prototype")
 app.include_router(members.router)
 app.include_router(tasks.router)
 app.include_router(cafeteria.router)
+app.include_router(assistant.router)
 
 
 @app.on_event("startup")

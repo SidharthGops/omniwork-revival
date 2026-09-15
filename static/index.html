@@ -28,6 +28,21 @@
       </div>
     </header>
 
+    <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <h2 class="font-medium text-lg">AI assistant</h2>
+      <p class="text-xs text-gray-400">
+        Tell it who to check on, in plain language — e.g. "check on priya" or
+        "ping whoever's blocked". It picks the right person and reaches them via
+        their AI avatar, exactly like the per-person button below.
+      </p>
+      <div id="assistant-log" class="text-sm space-y-2 max-h-48 overflow-y-auto"></div>
+      <div class="flex gap-2">
+        <input id="assistant-input" placeholder="e.g. check on whoever's blocked"
+          class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+        <button id="assistant-send" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Send</button>
+      </div>
+    </section>
+
     <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
       <h2 class="font-medium text-lg">New task</h2>
       <textarea id="task-desc" rows="3" placeholder="Describe the project, e.g. Build customer analytics dashboard"
@@ -100,7 +115,8 @@
     // Was a hardcoded string placeholder before; now wired to the first loaded
     // member once loadMembers() runs, so the "reach" call sends a real member id
     // (a string ObjectId) instead of a hardcoded requester_id. Also doubles as
-    // "who the lead is" for the presence switcher and the Cafeteria chat sender.
+    // "who the lead is" for the presence switcher, the Cafeteria chat sender,
+    // and the requester_id sent to the AI assistant below.
     let CURRENT_LEAD_ID = null;
 
     async function loadMembers() {
@@ -193,6 +209,43 @@
     document.getElementById("close-modal").addEventListener("click", () => {
       document.getElementById("exchange-modal").classList.add("hidden");
     });
+
+    // --- AI assistant chat panel --------------------------------------------------
+    // Natural-language front end over the exact same reach/avatar-exchange logic
+    // the per-member button above uses (POST /api/assistant/ping -> route_ping()
+    // in ollama_client.py picks the target via your local Ollama model -> the
+    // same perform_reach() the button calls). Not a second AI feature, just a
+    // different way to trigger the one that already exists.
+    document.getElementById("assistant-send").addEventListener("click", sendAssistantMessage);
+    document.getElementById("assistant-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendAssistantMessage();
+    });
+
+    async function sendAssistantMessage() {
+      const input = document.getElementById("assistant-input");
+      const message = input.value.trim();
+      if (!message) return;
+      const log = document.getElementById("assistant-log");
+      log.innerHTML += `<div class="text-gray-700">You: ${message}</div>`;
+      input.value = "";
+
+      const res = await fetch("/api/assistant/ping", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requester_id: CURRENT_LEAD_ID, message }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        log.innerHTML += `<div class="text-red-500">Assistant: ${data.error}</div>`;
+      } else if (data.info) {
+        // Not a reach request — a greeting, small talk, or a general question
+        // route_ping() answered directly instead of pinging anyone.
+        log.innerHTML += `<div class="text-gray-500">Assistant: ${data.info}</div>`;
+      } else {
+        const label = data.target_name ? `Assistant (reaching ${data.target_name}): ` : "Assistant: ";
+        log.innerHTML += `<div class="text-gray-500">${label}${data.direct ? data.message : data.transcript}</div>`;
+      }
+      log.scrollTop = log.scrollHeight;
+    }
 
     document.getElementById("generate-btn").addEventListener("click", async () => {
       const desc = document.getElementById("task-desc").value.trim();
