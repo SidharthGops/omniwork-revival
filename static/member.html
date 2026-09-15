@@ -18,6 +18,7 @@
       </div>
       <div class="flex items-center gap-3">
         <select id="who-am-i" class="border border-gray-300 rounded-lg p-2 text-sm"></select>
+        <button id="cafeteria-toggle" class="text-sm bg-gray-900 text-white px-3 py-1.5 rounded-lg">🍽 Cafeteria</button>
         <a href="/" class="text-sm text-gray-500 underline">Lead view</a>
       </div>
     </header>
@@ -56,7 +57,37 @@
 
   </div>
 
+  <!-- Cafeteria: same disappearing side overlay as the lead dashboard, not a
+       separate page — opens over this page and closes back to it. -->
+  <div id="cafeteria-overlay" class="hidden fixed inset-0 z-40">
+    <div id="cafeteria-backdrop" class="absolute inset-0 bg-black/30"></div>
+    <div class="absolute right-0 top-0 h-full w-full max-w-sm bg-white shadow-xl p-5 space-y-4 overflow-y-auto">
+      <div class="flex items-center justify-between">
+        <h3 class="font-medium text-lg">🍽 Cafeteria</h3>
+        <button id="cafeteria-close" class="text-gray-400 text-sm">Close ✕</button>
+      </div>
+      <div>
+        <h4 class="text-xs font-medium text-gray-500 mb-2">Who's around</h4>
+        <div id="cafeteria-people" class="flex flex-wrap gap-2"></div>
+      </div>
+      <div class="border-t border-gray-100 pt-3 space-y-3">
+        <div id="cafeteria-feed" class="text-sm space-y-2 max-h-64 overflow-y-auto"></div>
+        <div class="flex gap-2">
+          <input id="cafeteria-input" placeholder="Say something…"
+            class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+          <button id="cafeteria-send" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
+    const statusColors = {
+      available: "bg-green-100 text-green-800",
+      focused: "bg-blue-100 text-blue-800",
+      away: "bg-yellow-100 text-yellow-800",
+      blocked: "bg-red-100 text-red-800",
+    };
     let members = [];
     let currentId = null;
 
@@ -69,6 +100,7 @@
       currentId = prev && members.some(m => m.id === prev) ? prev : members[0]?.id;
       sel.value = currentId;
       render();
+      renderCafeteriaPeople();
     }
 
     document.getElementById("who-am-i").addEventListener("change", (e) => {
@@ -147,9 +179,73 @@
       await loadMembers();
     }
 
+    // --- Cafeteria overlay -------------------------------------------------------
+    // Same pattern as the lead dashboard: a side panel that opens over this page
+    // and closes back to it, backed by the same ephemeral /api/cafeteria/message
+    // broadcast — nothing here is stored, it just fans out over the websocket.
+    document.getElementById("cafeteria-toggle").addEventListener("click", () => {
+      document.getElementById("cafeteria-overlay").classList.remove("hidden");
+    });
+    document.getElementById("cafeteria-close").addEventListener("click", closeCafeteria);
+    document.getElementById("cafeteria-backdrop").addEventListener("click", closeCafeteria);
+    function closeCafeteria() {
+      document.getElementById("cafeteria-overlay").classList.add("hidden");
+    }
+
+    function renderCafeteriaPeople() {
+      const box = document.getElementById("cafeteria-people");
+      box.innerHTML = members.map(m => `
+        <span class="text-xs px-3 py-1.5 rounded-full ${statusColors[m.status]}">${m.name} · ${m.status}</span>
+      `).join("");
+    }
+
+    function appendCafeteriaMessage(data) {
+      const feed = document.getElementById("cafeteria-feed");
+      const time = new Date(data.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      feed.innerHTML += `
+        <div>
+          <span class="font-medium">${data.sender_name}</span>
+          <span class="text-gray-400 text-xs">${time}</span>
+          <div class="text-gray-700">${data.text}</div>
+        </div>`;
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    document.getElementById("cafeteria-send").addEventListener("click", sendCafeteriaMessage);
+    document.getElementById("cafeteria-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendCafeteriaMessage();
+    });
+
+    async function sendCafeteriaMessage() {
+      const input = document.getElementById("cafeteria-input");
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      // No optimistic render here — the broadcast comes back over the websocket
+      // to this same tab too, so rendering only on that event keeps one source
+      // of truth instead of a local echo that could drift from what other open
+      // tabs/overlays see.
+      await fetch("/api/cafeteria/message", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sender_id: currentId, text }),
+      });
+    }
+
     function connectSocket() {
       const ws = new WebSocket(`ws://${location.host}/ws`);
-      ws.onmessage = () => loadMembers();
+      ws.onmessage = (evt) => {
+        let parsed;
+        try {
+          parsed = JSON.parse(evt.data);
+        } catch {
+          return;
+        }
+        if (parsed.event === "cafeteria_message") {
+          appendCafeteriaMessage(parsed.data);
+        } else {
+          loadMembers();
+        }
+      };
       ws.onclose = () => setTimeout(connectSocket, 2000);
     }
 

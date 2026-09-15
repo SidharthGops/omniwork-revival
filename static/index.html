@@ -11,12 +11,21 @@
 <body class="bg-gray-50 text-gray-900">
   <div class="max-w-5xl mx-auto p-6 space-y-8">
 
-    <header class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-semibold">Team lead dashboard</h1>
-        <p class="text-gray-500 text-sm">AI-split tasks, live status, avatar-to-avatar check-ins.</p>
+    <header class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div>
+          <h1 class="text-2xl font-semibold">Team lead dashboard</h1>
+          <p class="text-gray-500 text-sm">AI-split tasks, live status, avatar-to-avatar check-ins.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <button id="cafeteria-toggle" class="text-sm bg-gray-900 text-white px-3 py-1.5 rounded-lg">🍽 Cafeteria</button>
+          <a href="/member" class="text-sm text-gray-500 underline">Open member view</a>
+        </div>
       </div>
-      <a href="/member" class="text-sm text-gray-500 underline">Open member view</a>
+      <div class="bg-white rounded-xl border border-gray-200 p-3 flex items-center gap-3 flex-wrap">
+        <span class="text-xs text-gray-400">Your status</span>
+        <div id="lead-status-buttons" class="flex gap-1.5 flex-wrap"></div>
+      </div>
     </header>
 
     <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
@@ -53,6 +62,30 @@
       </div>
     </div>
 
+    <!-- Cafeteria: a side overlay, not a separate page — opens over the dashboard
+         and closes back to it, per the "not a separate page" requirement. -->
+    <div id="cafeteria-overlay" class="hidden fixed inset-0 z-40">
+      <div id="cafeteria-backdrop" class="absolute inset-0 bg-black/30"></div>
+      <div class="absolute right-0 top-0 h-full w-full max-w-sm bg-white shadow-xl p-5 space-y-4 overflow-y-auto">
+        <div class="flex items-center justify-between">
+          <h3 class="font-medium text-lg">🍽 Cafeteria</h3>
+          <button id="cafeteria-close" class="text-gray-400 text-sm">Close ✕</button>
+        </div>
+        <div>
+          <h4 class="text-xs font-medium text-gray-500 mb-2">Who's around</h4>
+          <div id="cafeteria-people" class="flex flex-wrap gap-2"></div>
+        </div>
+        <div class="border-t border-gray-100 pt-3 space-y-3">
+          <div id="cafeteria-feed" class="text-sm space-y-2 max-h-64 overflow-y-auto"></div>
+          <div class="flex gap-2">
+            <input id="cafeteria-input" placeholder="Say something…"
+              class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+            <button id="cafeteria-send" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -66,7 +99,8 @@
     let generatedCheckpoints = [];
     // Was a hardcoded string placeholder before; now wired to the first loaded
     // member once loadMembers() runs, so the "reach" call sends a real member id
-    // (a string ObjectId) instead of a hardcoded requester_id.
+    // (a string ObjectId) instead of a hardcoded requester_id. Also doubles as
+    // "who the lead is" for the presence switcher and the Cafeteria chat sender.
     let CURRENT_LEAD_ID = null;
 
     async function loadMembers() {
@@ -77,6 +111,8 @@
       }
       renderMembers();
       renderAssigneeOptions();
+      renderLeadStatusSwitcher();
+      renderCafeteriaPeople();
     }
 
     function renderAssigneeOptions() {
@@ -213,9 +249,99 @@
       loadMembers();
     });
 
+    // --- Lead presence switcher -------------------------------------------------
+    // Same available/focused/away/blocked switcher the member page has, but for
+    // whoever CURRENT_LEAD_ID is. Every click writes straight to the same
+    // /api/members/:id/status endpoint the member page uses, so it's persisted
+    // to the DB immediately, not just held in this page.
+    function renderLeadStatusSwitcher() {
+      const box = document.getElementById("lead-status-buttons");
+      const me = members.find(m => m.id === CURRENT_LEAD_ID);
+      box.innerHTML = ["available", "focused", "away", "blocked"].map(s => `
+        <button data-lead-status="${s}" class="text-xs px-2.5 py-1 rounded-full border border-gray-300 ${me && me.status === s ? "bg-gray-900 text-white border-gray-900" : ""}">${s}</button>
+      `).join("");
+
+      box.querySelectorAll("[data-lead-status]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const status = btn.dataset.leadStatus;
+          let blocked_reason = null;
+          if (status === "blocked") {
+            blocked_reason = prompt("What are you stuck on?");
+            if (!blocked_reason) return;
+          }
+          await fetch(`/api/members/${CURRENT_LEAD_ID}/status`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status, blocked_reason }),
+          });
+          loadMembers();
+        });
+      });
+    }
+
+    // --- Cafeteria overlay -------------------------------------------------------
+    document.getElementById("cafeteria-toggle").addEventListener("click", () => {
+      document.getElementById("cafeteria-overlay").classList.remove("hidden");
+    });
+    document.getElementById("cafeteria-close").addEventListener("click", closeCafeteria);
+    document.getElementById("cafeteria-backdrop").addEventListener("click", closeCafeteria);
+    function closeCafeteria() {
+      document.getElementById("cafeteria-overlay").classList.add("hidden");
+    }
+
+    function renderCafeteriaPeople() {
+      const box = document.getElementById("cafeteria-people");
+      box.innerHTML = members.map(m => `
+        <span class="text-xs px-3 py-1.5 rounded-full ${statusColors[m.status]}">${m.name} · ${m.status}</span>
+      `).join("");
+    }
+
+    function appendCafeteriaMessage(data) {
+      const feed = document.getElementById("cafeteria-feed");
+      const time = new Date(data.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      feed.innerHTML += `
+        <div>
+          <span class="font-medium">${data.sender_name}</span>
+          <span class="text-gray-400 text-xs">${time}</span>
+          <div class="text-gray-700">${data.text}</div>
+        </div>`;
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    document.getElementById("cafeteria-send").addEventListener("click", sendCafeteriaMessage);
+    document.getElementById("cafeteria-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendCafeteriaMessage();
+    });
+
+    async function sendCafeteriaMessage() {
+      const input = document.getElementById("cafeteria-input");
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = "";
+      // No optimistic render here — the broadcast comes back over the websocket
+      // to this same tab too, so rendering only on that event keeps one source
+      // of truth instead of a local echo that could drift from what other open
+      // tabs/overlays see.
+      await fetch("/api/cafeteria/message", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sender_id: CURRENT_LEAD_ID, text }),
+      });
+    }
+
     function connectSocket() {
       const ws = new WebSocket(`ws://${location.host}/ws`);
-      ws.onmessage = () => loadMembers();
+      ws.onmessage = (evt) => {
+        let parsed;
+        try {
+          parsed = JSON.parse(evt.data);
+        } catch {
+          return;
+        }
+        if (parsed.event === "cafeteria_message") {
+          appendCafeteriaMessage(parsed.data);
+        } else {
+          loadMembers();
+        }
+      };
       ws.onclose = () => setTimeout(connectSocket, 2000);
     }
 
