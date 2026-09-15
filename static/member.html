@@ -35,12 +35,27 @@
         <button data-status="blocked"
           class="status-btn text-sm px-3 py-1.5 rounded-full border border-gray-300">Stuck</button>
       </div>
-      <div id="memory-suggestion" class="hidden text-sm bg-amber-50 border border-amber-200 rounded-lg p-3"></div>
+      <div id="memory-suggestion" class="hidden text-sm bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2"></div>
     </section>
 
     <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
       <h2 class="font-medium">Current task</h2>
       <div id="task-panel" class="text-sm text-gray-500">Loading…</div>
+    </section>
+
+    <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+      <h2 class="font-medium">AI assistant</h2>
+      <p class="text-xs text-gray-400">
+        Ask it to check on a teammate, in plain language — e.g. "check on alex"
+        or "ping whoever's blocked". Each person signed in here (via "who am I"
+        above) has their own independent conversation with the assistant.
+      </p>
+      <div id="assistant-log" class="text-sm space-y-2 max-h-48 overflow-y-auto"></div>
+      <div class="flex gap-2">
+        <input id="assistant-input" placeholder="e.g. check on whoever's blocked"
+          class="flex-1 border border-gray-300 rounded-lg p-2 text-sm" />
+        <button id="assistant-send" class="bg-gray-900 text-white text-sm px-4 py-2 rounded-lg">Send</button>
+      </div>
     </section>
 
     <section class="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
@@ -90,6 +105,21 @@
     };
     let members = [];
     let currentId = null;
+    // Each signed-in member gets their own AI-assistant conversation, keyed by
+    // member id, so switching "who am I" never leaks one person's chat history
+    // into another's — a fresh id just gets a fresh (empty) array here.
+    let assistantLogs = {};
+
+    function getAssistantLog(id) {
+      if (!assistantLogs[id]) assistantLogs[id] = [];
+      return assistantLogs[id];
+    }
+
+    function renderAssistantLog() {
+      const log = document.getElementById("assistant-log");
+      log.innerHTML = getAssistantLog(currentId).map(e => `<div class="${e.cls}">${e.text}</div>`).join("");
+      log.scrollTop = log.scrollHeight;
+    }
 
     async function loadMembers() {
       const res = await fetch("/api/members");
@@ -133,10 +163,15 @@
       if (member.status === "blocked" && member.memory_suggestion) {
         const s = member.memory_suggestion;
         suggestionBox.classList.remove("hidden");
-        suggestionBox.innerHTML = `<strong>${s.title}</strong> looks similar — ${s.solved_by} solved it before: ${s.solution}`;
+        suggestionBox.innerHTML = `
+          <div><strong>${s.title}</strong> looks similar — ${s.solved_by} solved it before: ${s.solution}</div>
+          <button id="ping-solver-btn" class="text-xs bg-amber-600 text-white px-2 py-1 rounded-lg">Ping ${s.solved_by}</button>`;
+        document.getElementById("ping-solver-btn").addEventListener("click", () => pingSolver(s));
       } else {
         suggestionBox.classList.add("hidden");
       }
+
+      renderAssistantLog();
     }
 
     document.querySelectorAll(".status-btn").forEach(btn => {
@@ -177,6 +212,65 @@
       log.innerHTML += `<div class="text-gray-500">AI: ${data.ack}</div>`;
       log.scrollTop = log.scrollHeight;
       await loadMembers();
+    }
+
+    // --- AI assistant chat panel --------------------------------------------------
+    // Same natural-language front end as the Dashboard's assistant, and the same
+    // /api/assistant/ping endpoint/backend logic — the only thing that's new here
+    // is that the conversation is stored per member id (assistantLogs above), so
+    // whoever is currently "signed in" via the who-am-i dropdown sees only their
+    // own history.
+    document.getElementById("assistant-send").addEventListener("click", sendAssistantMessage);
+    document.getElementById("assistant-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") sendAssistantMessage();
+    });
+
+    async function sendAssistantMessage() {
+      const input = document.getElementById("assistant-input");
+      const message = input.value.trim();
+      if (!message) return;
+      const entries = getAssistantLog(currentId);
+      entries.push({ cls: "text-gray-700", text: `You: ${message}` });
+      input.value = "";
+      renderAssistantLog();
+
+      const res = await fetch("/api/assistant/ping", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requester_id: currentId, message }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        entries.push({ cls: "text-red-500", text: `Assistant: ${data.error}` });
+      } else if (data.info) {
+        entries.push({ cls: "text-gray-500", text: `Assistant: ${data.info}` });
+      } else {
+        const label = data.target_name ? `Assistant (reaching ${data.target_name}): ` : "Assistant: ";
+        entries.push({ cls: "text-gray-500", text: `${label}${data.direct ? data.message : data.transcript}` });
+      }
+      renderAssistantLog();
+    }
+
+    async function pingSolver(suggestion) {
+      const member = members.find(m => m.id === currentId);
+      const message = `Ping ${suggestion.solved_by}, they solved a similar issue before ("${suggestion.title}") that might help me.`;
+      const entries = getAssistantLog(currentId);
+      entries.push({ cls: "text-gray-700", text: `You: ${message}` });
+      renderAssistantLog();
+
+      const res = await fetch("/api/assistant/ping", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requester_id: currentId, message }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        entries.push({ cls: "text-red-500", text: `Assistant: ${data.error}` });
+      } else if (data.info) {
+        entries.push({ cls: "text-gray-500", text: `Assistant: ${data.info}` });
+      } else {
+        const label = data.target_name ? `Assistant (reaching ${data.target_name}): ` : "Assistant: ";
+        entries.push({ cls: "text-gray-500", text: `${label}${data.direct ? data.message : data.transcript}` });
+      }
+      renderAssistantLog();
     }
 
     // --- Cafeteria overlay -------------------------------------------------------

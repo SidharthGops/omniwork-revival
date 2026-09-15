@@ -170,6 +170,11 @@
         <div class="text-gray-400 mt-0.5">${formatCheckinTime(m.last_checkin_at)}</div>
       </div>` : ""}
       ${m.status === "blocked" && m.blocked_reason ? `<div class="text-xs text-red-600">Stuck: ${m.blocked_reason}</div>` : ""}
+      ${m.status === "blocked" && m.memory_suggestion ? `
+      <div class="text-xs bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1">
+        <div><strong>${m.memory_suggestion.title}</strong> looks similar — ${m.memory_suggestion.solved_by} solved it before: ${m.memory_suggestion.solution}</div>
+        <button data-ping-solver="${m.id}" class="text-xs bg-amber-600 text-white px-2 py-1 rounded-lg">Ping ${m.memory_suggestion.solved_by}</button>
+      </div>` : ""}
       <div class="flex items-center gap-2 pt-1">
         <label class="text-xs text-gray-500 flex items-center gap-1">
           <input type="checkbox" data-zoom="${m.id}" ${m.in_zoom_call ? "checked" : ""} /> in Zoom call (sim)
@@ -200,6 +205,36 @@
           showExchange(data.direct ? data.message : data.transcript);
         });
       });
+
+      // "Ping <solved_by>" on a knowledge-base suggestion — routes through the
+      // same AI assistant endpoint as the chat panel above, so it shows up in
+      // the assistant log instead of opening a second, separate UI for it.
+      grid.querySelectorAll("[data-ping-solver]").forEach(el => {
+        el.addEventListener("click", () => pingSolver(el.dataset.pingSolver));
+      });
+    }
+
+    async function pingSolver(memberId) {
+      const m = members.find(x => x.id === memberId);
+      if (!m || !m.memory_suggestion) return;
+      const s = m.memory_suggestion;
+      const message = `Ping ${s.solved_by}, they solved a similar issue before ("${s.title}") that might help ${m.name}.`;
+      const log = document.getElementById("assistant-log");
+      log.innerHTML += `<div class="text-gray-700">You: ${message}</div>`;
+      const res = await fetch("/api/assistant/ping", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requester_id: CURRENT_LEAD_ID, message }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        log.innerHTML += `<div class="text-red-500">Assistant: ${data.error}</div>`;
+      } else if (data.info) {
+        log.innerHTML += `<div class="text-gray-500">Assistant: ${data.info}</div>`;
+      } else {
+        const label = data.target_name ? `Assistant (reaching ${data.target_name}): ` : "Assistant: ";
+        log.innerHTML += `<div class="text-gray-500">${label}${data.direct ? data.message : data.transcript}</div>`;
+      }
+      log.scrollTop = log.scrollHeight;
     }
 
     function showExchange(text) {

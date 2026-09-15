@@ -6,12 +6,21 @@ model from Hugging Face on first use, which is one more thing that can fail on
 stage with bad wifi. TF-IDF needs no download, runs instantly, and is good enough
 to demo semantic-ish matching against a small seeded corpus. Swap in real
 embeddings (Chroma, sentence-transformers) later without changing the call site.
+
+The knowledge entries themselves used to live only in the ENTRIES list below,
+held in memory. They're now persisted in Mongo (knowledge_col, seeded from
+ENTRIES the first time the collection is empty — see app/database.py's
+init_db()), so entries survive a restart and can eventually be added to at
+runtime. ENTRIES stays here as the seed data / fallback. search() is async
+now (it queries the DB), which is why every call site awaits it.
 """
 from dataclasses import dataclass
 from typing import List, Optional
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+
+from app.database import knowledge_col
 
 
 @dataclass
@@ -85,23 +94,31 @@ ENTRIES: List[MemoryEntry] = [
     ),
 ]
 
-_corpus = [f"{e.title} {e.description}" for e in ENTRIES]
-_vectorizer = TfidfVectorizer(stop_words="english")
-_matrix = _vectorizer.fit_transform(_corpus)
-
-
-def search(query: str, min_similarity: float = 0.1) -> Optional[dict]:
+async def search(query: str, min_similarity: float = 0.1) -> Optional[dict]:
+    """Same TF-IDF + cosine-similarity approach as before, just reading the
+    corpus from knowledge_col instead of the hardcoded ENTRIES list. The
+    vectorizer is small and cheap enough (a handful of entries, hackathon
+    scale) to rebuild on every call, which also means a newly-added knowledge
+    entry is picked up immediately without needing a cache-invalidation step.
+    Return shape is unchanged: {"title", "solution", "solved_by", "similarity"}.
+    """
     if not query or not query.strip():
         return None
-    vec = _vectorizer.transform([query])
-    sims = cosine_similarity(vec, _matrix)[0]
+    docs = await knowledge_col.find().to_list(None)
+    if not docs:
+        return None
+    corpus = [f"{d.get('title', '')} {d.get('description', '')}" for d in docs]
+    vectorizer = TfidfVectorizer(stop_words="english")
+    matrix = vectorizer.fit_transform(corpus)
+    vec = vectorizer.transform([query])
+    sims = cosine_similarity(vec, matrix)[0]
     best_idx = int(sims.argmax())
     if sims[best_idx] < min_similarity:
         return None
-    entry = ENTRIES[best_idx]
+    entry = docs[best_idx]
     return {
-        "title": entry.title,
-        "solution": entry.solution,
-        "solved_by": entry.solved_by,
+        "title": entry["title"],
+        "solution": entry["solution"],
+        "solved_by": entry["solved_by"],
         "similarity": round(float(sims[best_idx]), 2),
     }

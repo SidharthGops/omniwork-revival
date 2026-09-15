@@ -28,6 +28,9 @@ members_col = db["members"]
 tasks_col = db["tasks"]
 checkpoints_col = db["checkpoints"]
 avatar_exchanges_col = db["avatar_exchanges"]
+# Backs the "stuck" knowledge-base suggestions (see app/team_memory.py) — used
+# to be a hardcoded in-memory list, now persisted here like everything else.
+knowledge_col = db["knowledge"]
 
 
 async def init_db() -> None:
@@ -40,11 +43,28 @@ async def init_db() -> None:
     leaving your migrated data alone.
     """
     existing = await members_col.find_one({})
-    if existing:
-        return
-    demo_members = [
-        Member(name="Alex Rao", role="Backend engineer").dict(exclude={"id"}),
-        Member(name="Priya Nair", role="Frontend engineer").dict(exclude={"id"}),
-        Member(name="Sam George", role="Design").dict(exclude={"id"}),
-    ]
-    await members_col.insert_many(demo_members)
+    if not existing:
+        demo_members = [
+            Member(name="Alex Rao", role="Backend engineer").dict(exclude={"id"}),
+            Member(name="Priya Nair", role="Frontend engineer").dict(exclude={"id"}),
+            Member(name="Sam George", role="Design").dict(exclude={"id"}),
+        ]
+        await members_col.insert_many(demo_members)
+
+    # Same "seed only if empty" pattern for the knowledge base that used to be
+    # a hardcoded ENTRIES list in team_memory.py — imported here (lazily, to
+    # avoid a circular import since team_memory now reads from knowledge_col)
+    # so the seed data lives in exactly one place.
+    existing_knowledge = await knowledge_col.find_one({})
+    if not existing_knowledge:
+        from app.team_memory import ENTRIES
+
+        await knowledge_col.insert_many([
+            {
+                "title": e.title,
+                "description": e.description,
+                "solution": e.solution,
+                "solved_by": e.solved_by,
+            }
+            for e in ENTRIES
+        ])

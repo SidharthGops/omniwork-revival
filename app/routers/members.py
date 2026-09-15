@@ -89,7 +89,7 @@ async def _member_to_out(m: dict) -> MemberOut:
     if m.get("status") == PresenceStatus.blocked.value and m.get("blocked_reason"):
         # Recomputed here (not just on the status-update response) so it survives
         # the list refetch that every websocket broadcast triggers on clients.
-        hit = team_memory.search(m["blocked_reason"])
+        hit = await team_memory.search(m["blocked_reason"])
         if hit:
             suggestion = MemorySuggestion(**hit)
 
