@@ -115,10 +115,88 @@
       return assistantLogs[id];
     }
 
+    // --- "Stuck?" nudge -----------------------------------------------------------
+    // A set delay after a task is assigned, the assistant proactively asks (right
+    // in this same chat log) if the person needs help. This never disables
+    // assistant-input — the person can keep typing normally at any time; if a
+    // nudge happens to be awaiting a reply, their very next message is just
+    // interpreted as a description of what they're stuck on instead of a
+    // "reach a teammate" request.
+    const NUDGE_DELAY_MS = 30 * 60 * 1000; // 30 min — lower this (e.g. 30 * 1000) to demo faster
+    const nudgedTasks = new Set();   // `${memberId}:${taskCreatedAt}` already nudged, so it only fires once per task
+    const awaitingIssueFrom = {};    // memberId -> true while we're waiting on their reply to a nudge
+    let logIdCounter = 0;
+
+    function checkNudge() {
+      const member = members.find(m => m.id === currentId);
+      if (!member || !member.current_task || !member.task_created_at) return;
+      const key = `${currentId}:${member.task_created_at}`;
+      if (nudgedTasks.has(key)) return;
+      if (Date.now() - new Date(member.task_created_at).getTime() < NUDGE_DELAY_MS) return;
+      nudgedTasks.add(key);
+      awaitingIssueFrom[currentId] = true;
+      getAssistantLog(currentId).push({
+        kind: "msg", cls: "text-amber-700",
+        text: "Assistant: You've been on this task a while — stuck on anything? Describe it below, or just say you're fine.",
+      });
+      renderAssistantLog();
+    }
+    setInterval(checkNudge, 15000);
+
     function renderAssistantLog() {
       const log = document.getElementById("assistant-log");
-      log.innerHTML = getAssistantLog(currentId).map(e => `<div class="${e.cls}">${e.text}</div>`).join("");
+      const entries = getAssistantLog(currentId);
+      log.innerHTML = entries.map(e => {
+        if (e.kind === "buttons") {
+          if (e.done) {
+            return `<div class="text-gray-400 italic">${e.chosenText}</div>`;
+          }
+          return `<div class="flex gap-2 flex-wrap">${e.options.map(o =>
+            `<button data-log-btn="${e.id}" data-action="${o.action}" class="text-xs bg-gray-900 text-white px-2 py-1 rounded-lg">${o.label}</button>`
+          ).join("")}</div>`;
+        }
+        return `<div class="${e.cls}">${e.text}</div>`;
+      }).join("");
       log.scrollTop = log.scrollHeight;
+      log.querySelectorAll("[data-log-btn]").forEach(btn => {
+        btn.addEventListener("click", () => handleNudgeButton(btn.dataset.logBtn, btn.dataset.action));
+      });
+    }
+
+    async function handleNudgeButton(entryId, action) {
+      const entries = getAssistantLog(currentId);
+      const entry = entries.find(e => e.id === entryId);
+      if (!entry || entry.done) return;
+      entry.done = true;
+
+      if (action === "fine") {
+        entry.chosenText = "You: I'm fine";
+        renderAssistantLog();
+        return;
+      }
+
+      entry.chosenText = action === "ask_solver" ? `You: Ask ${entry.solvedBy}` : "You: Ask OmniWork AI";
+      renderAssistantLog();
+
+      const message = action === "ask_solver"
+        ? `Ping ${entry.solvedBy}, they solved a similar issue before ("${entry.suggestionTitle}") that might help me.`
+        : entry.issueMessage;
+
+      const res = await fetch("/api/assistant/ping", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requester_id: currentId, message }),
+      });
+      const data = await res.json();
+      const followUp = getAssistantLog(currentId);
+      if (data.error) {
+        followUp.push({ kind: "msg", cls: "text-red-500", text: `Assistant: ${data.error}` });
+      } else if (data.info) {
+        followUp.push({ kind: "msg", cls: "text-gray-500", text: `Assistant: ${data.info}` });
+      } else {
+        const label = data.target_name ? `Assistant (reaching ${data.target_name}): ` : "Assistant: ";
+        followUp.push({ kind: "msg", cls: "text-gray-500", text: `${label}${data.direct ? data.message : data.transcript}` });
+      }
+      renderAssistantLog();
     }
 
     async function loadMembers() {
@@ -172,6 +250,7 @@
       }
 
       renderAssistantLog();
+      checkNudge();
     }
 
     document.querySelectorAll(".status-btn").forEach(btn => {
@@ -230,9 +309,53 @@
       const message = input.value.trim();
       if (!message) return;
       const entries = getAssistantLog(currentId);
-      entries.push({ cls: "text-gray-700", text: `You: ${message}` });
+      entries.push({ kind: "msg", cls: "text-gray-700", text: `You: ${message}` });
       input.value = "";
       renderAssistantLog();
+
+      // If a "stuck?" nudge is awaiting a reply, this one message is treated as
+      // a description of the issue (checked against the knowledge base) rather
+      // than the normal "reach a teammate" request — the input box itself was
+      // never disabled, this only changes how this one reply is interpreted.
+      if (awaitingIssueFrom[currentId]) {
+        awaitingIssueFrom[currentId] = false;
+        if (/\b(i'?m fine|i am fine|no|nope|all good|nothing|good)\b/i.test(message)) {
+          entries.push({ kind: "msg", cls: "text-gray-500", text: "Assistant: Glad to hear it — I'm here if that changes." });
+          renderAssistantLog();
+          return;
+        }
+        const res = await fetch("/api/assistant/describe_issue", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message }),
+        });
+        const data = await res.json();
+        const id = `nudge-${logIdCounter++}`;
+        if (data.familiar && data.suggestion) {
+          const s = data.suggestion;
+          entries.push({
+            kind: "msg", cls: "text-amber-700",
+            text: `Assistant: That looks similar to "${s.title}" — ${s.solved_by} solved it before: ${s.solution}`,
+          });
+          entries.push({
+            kind: "buttons", id, issueMessage: message, solvedBy: s.solved_by, suggestionTitle: s.title,
+            options: [
+              { label: `Ask ${s.solved_by}`, action: "ask_solver" },
+              { label: "Ask Omniwork AI", action: "ask_ai" },
+              { label: "I'm fine", action: "fine" },
+            ],
+          });
+        } else {
+          entries.push({
+            kind: "buttons", id, issueMessage: message,
+            options: [
+              { label: "Ask OmniWork", action: "ask_ai" },
+              { label: "I'm fine", action: "fine" },
+            ],
+          });
+        }
+        renderAssistantLog();
+        return;
+      }
 
       const res = await fetch("/api/assistant/ping", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -240,21 +363,20 @@
       });
       const data = await res.json();
       if (data.error) {
-        entries.push({ cls: "text-red-500", text: `Assistant: ${data.error}` });
+        entries.push({ kind: "msg", cls: "text-red-500", text: `Assistant: ${data.error}` });
       } else if (data.info) {
-        entries.push({ cls: "text-gray-500", text: `Assistant: ${data.info}` });
+        entries.push({ kind: "msg", cls: "text-gray-500", text: `Assistant: ${data.info}` });
       } else {
         const label = data.target_name ? `Assistant (reaching ${data.target_name}): ` : "Assistant: ";
-        entries.push({ cls: "text-gray-500", text: `${label}${data.direct ? data.message : data.transcript}` });
+        entries.push({ kind: "msg", cls: "text-gray-500", text: `${label}${data.direct ? data.message : data.transcript}` });
       }
       renderAssistantLog();
     }
 
     async function pingSolver(suggestion) {
-      const member = members.find(m => m.id === currentId);
       const message = `Ping ${suggestion.solved_by}, they solved a similar issue before ("${suggestion.title}") that might help me.`;
       const entries = getAssistantLog(currentId);
-      entries.push({ cls: "text-gray-700", text: `You: ${message}` });
+      entries.push({ kind: "msg", cls: "text-gray-700", text: `You: ${message}` });
       renderAssistantLog();
 
       const res = await fetch("/api/assistant/ping", {

@@ -1,11 +1,14 @@
+from typing import Optional
+
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app import team_memory
 from app.database import members_col
 from app.ollama_client import route_ping
-from app.routers.members import perform_reach
+from app.routers.members import MemorySuggestion, perform_reach
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
@@ -13,6 +16,15 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 class PingRequest(BaseModel):
     requester_id: str
     message: str
+
+
+class DescribeIssueRequest(BaseModel):
+    message: str
+
+
+class DescribeIssueResponse(BaseModel):
+    familiar: bool
+    suggestion: Optional[MemorySuggestion] = None
 
 
 @router.post("/ping")
@@ -64,3 +76,22 @@ async def assistant_ping(body: PingRequest):
     result = await perform_reach(target, requester, reason)
     result["target_name"] = target["name"]
     return result
+
+
+@router.post("/describe_issue", response_model=DescribeIssueResponse)
+async def describe_issue(body: DescribeIssueRequest):
+    """Backs the "stuck?" nudge on the Dashboard/member pages: a set delay after
+    a task is assigned, the assistant asks if the person needs help. If they
+    describe what they're stuck on (instead of just saying they're fine), this
+    endpoint checks it against the exact same team-memory knowledge base used
+    for the existing blocked-status suggestion (team_memory.search — no second
+    lookup path, no duplicated matching logic) and reports back whether it's a
+    familiar issue (with who solved it before) so the frontend can offer to
+    ping that person, or an unfamiliar one (offer to ask the general assistant
+    instead). This never fires a reach-out itself — /ping above still does
+    that, whichever option the person picks in the UI.
+    """
+    hit = await team_memory.search(body.message)
+    if hit:
+        return DescribeIssueResponse(familiar=True, suggestion=MemorySuggestion(**hit))
+    return DescribeIssueResponse(familiar=False, suggestion=None)

@@ -44,6 +44,9 @@ class MemberOut(BaseModel):
     last_update_note: Optional[str] = None
     last_checkin_at: Optional[datetime] = None
     memory_suggestion: Optional[MemorySuggestion] = None
+    # New — when the current task was assigned, so the frontend's "stuck?"
+    # nudge (a set delay after assignment) knows when to fire.
+    task_created_at: Optional[datetime] = None
 
 
 class StatusUpdate(BaseModel):
@@ -77,10 +80,12 @@ async def _member_to_out(m: dict) -> MemberOut:
     title = None
     last_update_note = None
     last_checkin_at = None
+    task_created_at = None
     if task:
         title = task["title"]
         last_update_note = task.get("last_update_note")
         last_checkin_at = task.get("last_checkin_at")
+        task_created_at = task.get("created_at")
         checkpoints = await checkpoints_col.find({"task_id": str(task["_id"])}).to_list(None)
         total = len(checkpoints)
         done = sum(1 for c in checkpoints if c.get("done"))
@@ -98,7 +103,7 @@ async def _member_to_out(m: dict) -> MemberOut:
         in_zoom_call=m.get("in_zoom_call", False), blocked_reason=m.get("blocked_reason"),
         current_task=title, progress_done=done, progress_total=total,
         last_update_note=last_update_note, last_checkin_at=last_checkin_at,
-        memory_suggestion=suggestion,
+        memory_suggestion=suggestion, task_created_at=task_created_at,
     )
 
 
